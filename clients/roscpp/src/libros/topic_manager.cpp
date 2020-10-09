@@ -34,6 +34,7 @@
 #include "ros/this_node.h"
 #include "ros/network.h"
 #include "ros/master.h"
+#include "ros/transport/transport_iceoryx.h"
 #include "ros/transport/transport_tcp.h"
 #include "ros/transport/transport_udp.h"
 #include "ros/rosout_appender.h"
@@ -686,6 +687,72 @@ bool TopicManager::requestTopic(const string &topic,
       ret[0] = int(1);
       ret[1] = string();
       ret[2] = udpros_params;
+      return true;
+    }
+    else if (proto_name == string("IceoryxROS"))
+    {
+      ROSCPP_LOG_DEBUG("Setting-up IceoryxROS connection");
+
+      if (proto.size() != 4 ||
+          proto[1].getType() != XmlRpcValue::TypeBase64 ||
+          proto[2].getType() != XmlRpcValue::TypeString ||
+          proto[3].getType() != XmlRpcValue::TypeString)
+      {
+        ROSCPP_LOG_DEBUG("Invalid protocol parameters for IceoryxROS");
+        return false;
+      }
+      std::vector<char> header_bytes = proto[1];
+      boost::shared_array<uint8_t> buffer(new uint8_t[header_bytes.size()]);
+      memcpy(buffer.get(), &header_bytes[0], header_bytes.size());
+      Header h;
+      string err;
+      if (!h.parse(buffer, header_bytes.size(), err))
+      {
+      	ROSCPP_LOG_DEBUG("Unable to parse UDPROS connection header: %s", err.c_str());
+        return false;
+      }
+
+      PublicationPtr pub_ptr = lookupPublication(topic);
+      if(!pub_ptr)
+      {
+      	ROSCPP_LOG_DEBUG("Unable to find advertised topic %s for UDPROS connection", topic.c_str());
+        return false;
+      }
+
+      std::string segment = proto[2];
+      std::string topic_name = proto[3];
+
+      M_string m;
+      std::string error_msg;
+      if (!pub_ptr->validateHeader(h, error_msg))
+      {
+        ROSCPP_LOG_DEBUG("Error validating header from [%s:%s] for topic [%s]: %s", segment.c_str(), topic_name.c_str(), topic.c_str(), error_msg.c_str());
+        return false;
+      }
+
+      int conn_id = connection_manager_->getNewConnectionID();
+      TransportIceoryxPtr transport(boost::make_shared<TransportIceoryx>(PollManager::instance(), TransportIceoryx::Publisher, topic_name, segment, conn_id));
+      ROSCPP_LOG_DEBUG("Created iceoryx publisher for [%s:%s]", segment.c_str(), topic_name.c_str());
+      connection_manager_->iceoryxrosIncomingConnection(transport, h);
+
+      XmlRpcValue iceoryxros_params;
+      iceoryxros_params[0] = string("IceoryxROS");
+      iceoryxros_params[1] = segment;
+      iceoryxros_params[2] = topic_name;
+      iceoryxros_params[3] = conn_id;
+      m["topic"] = topic;
+      m["md5sum"] = pub_ptr->getMD5Sum();
+      m["type"] = pub_ptr->getDataType();
+      m["callerid"] = this_node::getName();
+      m["message_definition"] = pub_ptr->getMessageDefinition();
+      boost::shared_array<uint8_t> msg_def_buffer;
+      uint32_t len;
+      Header::write(m, msg_def_buffer, len);
+      XmlRpcValue v(msg_def_buffer.get(), len);
+      iceoryxros_params[4] = v;
+      ret[0] = int(1);
+      ret[1] = string();
+      ret[2] = iceoryxros_params;
       return true;
     }
     else

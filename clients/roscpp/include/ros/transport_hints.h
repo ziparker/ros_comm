@@ -151,6 +151,15 @@ public:
   }
 
   /**
+   * \brief Explicitly specifies an Iceoryx transport.
+   */
+  TransportHints& iceoryx()
+  {
+    transports_.push_back("Iceoryx");
+    return *this;
+  }
+
+  /**
    * \brief Returns a vector of transports, ordered by preference
    */
   const V_string& getTransports() { return transports_; }

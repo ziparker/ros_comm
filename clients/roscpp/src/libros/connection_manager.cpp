@@ -30,6 +30,7 @@
 #include "ros/connection.h"
 #include "ros/transport_subscriber_link.h"
 #include "ros/service_client_link.h"
+#include "ros/transport/transport_iceoryx.h"
 #include "ros/transport/transport_tcp.h"
 #include "ros/transport/transport_udp.h"
 #include "ros/file_log.h"
@@ -79,6 +80,9 @@ void ConnectionManager::start()
     ROS_FATAL("Listen failed");
     ROS_BREAK();
   }
+
+  // Bring up the Iceoryx listener
+  iceoryx_transport_ = boost::make_shared<TransportIceoryx>(poll_manager_);
 }
 
 void ConnectionManager::shutdown()
@@ -93,6 +97,12 @@ void ConnectionManager::shutdown()
   {
     tcpserver_transport_->close();
     tcpserver_transport_.reset();
+  }
+
+  if (iceoryx_transport_)
+  {
+    iceoryx_transport_->close();
+    iceoryx_transport_.reset();
   }
 
   poll_manager_->removePollThreadListener(poll_conn_);
@@ -174,6 +184,18 @@ void ConnectionManager::udprosIncomingConnection(const TransportUDPPtr& transpor
 {
   std::string client_uri = ""; // TODO: transport->getClientURI();
   ROSCPP_LOG_DEBUG("UDPROS received a connection from [%s]", client_uri.c_str());
+
+  ConnectionPtr conn(boost::make_shared<Connection>());
+  addConnection(conn);
+
+  conn->initialize(transport, true, NULL);
+  onConnectionHeaderReceived(conn, header);
+}
+
+void ConnectionManager::iceoryxrosIncomingConnection(const TransportIceoryxPtr& transport, Header& header)
+{
+  std::string client_uri = ""; // TODO: transport->getClientURI();
+  ROSCPP_LOG_DEBUG("IceoryxROS received a connection from [%s]", client_uri.c_str());
 
   ConnectionPtr conn(boost::make_shared<Connection>());
   addConnection(conn);

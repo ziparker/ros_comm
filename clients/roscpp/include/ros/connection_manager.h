@@ -66,8 +66,10 @@ public:
 
   const TransportTCPPtr& getTCPServerTransport() { return tcpserver_transport_; }
   const TransportUDPPtr& getUDPServerTransport() { return udpserver_transport_; }
+  const TransportIceoryxPtr& getIceoryxServerTransport() { return iceoryx_transport_; }
 
   void udprosIncomingConnection(const TransportUDPPtr& transport, Header& header);
+  void iceoryxrosIncomingConnection(const TransportIceoryxPtr& transport, Header& header);
 
   void start();
   void shutdown();
@@ -98,6 +100,7 @@ private:
 
   TransportTCPPtr tcpserver_transport_;
   TransportUDPPtr udpserver_transport_;
+  TransportIceoryxPtr iceoryx_transport_;
 
   const static int MAX_TCPROS_CONN_QUEUE = 100; // magic
 };

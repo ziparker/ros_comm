@@ -46,6 +46,7 @@
 #include "ros/intraprocess_publisher_link.h"
 #include "ros/intraprocess_subscriber_link.h"
 #include "ros/connection.h"
+#include "ros/transport/transport_iceoryx.h"
 #include "ros/transport/transport_tcp.h"
 #include "ros/transport/transport_udp.h"
 #include "ros/callback_queue_interface.h"
@@ -379,6 +380,27 @@ bool Subscription::negotiateConnection(const std::string& xmlrpc_uri)
 
       protos_array[protos++] = udpros_array;
     }
+    else if (*it == "Iceoryx")
+    {
+      const std::string ice_namespace;
+      ROSCPP_LOG_DEBUG("negotiating iceoryx connection: %s, %s", ice_namespace.c_str(), name_.c_str());
+
+      XmlRpcValue iceros_array;
+      iceros_array[0] = "IceoryxROS";
+      M_string m;
+      m["topic"] = getName();
+      m["md5sum"] = md5sum();
+      m["callerid"] = this_node::getName();
+      m["type"] = datatype();
+      boost::shared_array<uint8_t> buffer;
+      uint32_t len;
+      Header::write(m, buffer, len);
+      XmlRpcValue v(buffer.get(), len);
+      iceros_array[1] = v;
+      iceros_array[2] = ice_namespace.c_str();
+      iceros_array[3] = name_;
+      protos_array[protos++] = iceros_array;
+    }
     else if (*it == "TCP")
     {
       tcpros_array[0] = std::string("TCPROS");
@@ -586,6 +608,67 @@ void Subscription::pendingConnectionDone(const PendingConnectionPtr& conn, XmlRp
     else
     {
       ROSCPP_LOG_DEBUG("Failed to connect to publisher of topic [%s] at [%s:%d]", name_.c_str(), pub_host.c_str(), pub_port);
+      closeTransport(udp_transport);
+      return;
+    }
+  }
+  else if (proto_name == "IceoryxROS")
+  {
+    if (proto.size() != 5 ||
+        proto[1].getType() != XmlRpcValue::TypeString ||
+        proto[2].getType() != XmlRpcValue::TypeString ||
+        proto[3].getType() != XmlRpcValue::TypeInt ||
+        proto[4].getType() != XmlRpcValue::TypeBase64)
+    {
+      ROSCPP_LOG_DEBUG("publisher implements IceoryxROS, but the " \
+	    	       "parameters aren't int,base64");
+      closeTransport(udp_transport);
+      return;
+    }
+    std::string segment = proto[1];
+    std::string ice_topic = proto[2];
+    int conn_id = proto[3];
+    std::vector<char> header_bytes = proto[4];
+    boost::shared_array<uint8_t> buffer(new uint8_t[header_bytes.size()]);
+    memcpy(buffer.get(), &header_bytes[0], header_bytes.size());
+    Header h;
+    std::string err;
+    if (!h.parse(buffer, header_bytes.size(), err))
+    {
+      ROSCPP_LOG_DEBUG("Unable to parse IceoryxROS connection header: %s", err.c_str());
+      closeTransport(udp_transport);
+      return;
+    }
+    ROSCPP_LOG_DEBUG("Connecting via iceoryx to topic [%s] on segment %s:%s connection id [%08x] ", name_.c_str(), segment.c_str(), ice_topic.c_str(), conn_id);
+
+    std::string error_msg;
+    if (h.getValue("error", error_msg))
+    {
+      ROSCPP_LOG_DEBUG("Received error message in header for connection to [%s]: [%s]", xmlrpc_uri.c_str(), error_msg.c_str());
+      closeTransport(udp_transport);
+      return;
+    }
+
+    TransportPublisherLinkPtr pub_link(boost::make_shared<TransportPublisherLink>(shared_from_this(), xmlrpc_uri, transport_hints_));
+    TransportIceoryxPtr transport(boost::make_shared<TransportIceoryx>(PollManager::instance(), TransportIceoryx::Subscriber, ice_topic, segment));
+    ROSCPP_LOG_DEBUG("subscribing to %s", ice_topic.c_str());
+    if (pub_link->setHeader(h))
+    {
+      ConnectionPtr connection(boost::make_shared<Connection>());
+      connection->initialize(transport, false, NULL);
+      connection->setHeader(h);
+      pub_link->initialize(connection);
+
+      ConnectionManager::instance()->addConnection(connection);
+
+      boost::mutex::scoped_lock lock(publisher_links_mutex_);
+      addPublisherLink(pub_link);
+
+      ROSCPP_LOG_DEBUG("Connected to publisher of topic [%s] at [%s:%s]", name_.c_str(), segment.c_str(), ice_topic.c_str());
+    }
+    else
+    {
+      ROSCPP_LOG_DEBUG("Failed to connect to publisher of topic [%s] at [%s:%s]", name_.c_str(), segment.c_str(), ice_topic.c_str());
       closeTransport(udp_transport);
       return;
     }
