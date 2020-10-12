@@ -154,6 +154,18 @@ public:
      */
     void setEncryptorPlugin(const std::string& plugin_name, const std::string& plugin_param = std::string());
 
+    //! Write a serialized message into the bag file
+    /*!
+     * \param topic The topic name
+     * \param time  Timestamp of the message
+     * \param data  The raw data to be added
+     * \param len   The length of data to be added
+     * \param connection_header  A connection header.
+     *
+     * Can throw BagIOException
+     */
+    void write(std::string const& topic, ros::Time const& time, void const* data, size_t len, ConnectionInfo const& info);
+
     //! Write a message into the bag file
     /*!
      * \param topic The topic name
@@ -214,6 +226,9 @@ private:
 
     void init();
 
+    // This helper function actually does the write with an arbitrary serializable message, bypassing the record buffer.
+    void doWrite(std::string const& topic, ros::Time const& time, void const* msg, size_t len, ConnectionInfo const& info);
+
     // This helper function actually does the write with an arbitrary serializable message
     template<class T>
     void doWrite(std::string const& topic, ros::Time const& time, T const& msg, boost::shared_ptr<ros::M_string> const& connection_header);
@@ -239,6 +254,7 @@ private:
     void writeFileHeaderRecord();
     void writeConnectionRecord(ConnectionInfo const* connection_info, const bool encrypt);
     void appendConnectionRecordToBuffer(Buffer& buf, ConnectionInfo const* connection_info);
+    void writeMessageDataRecord(uint32_t conn_id, ros::Time const& time, void const* data, size_t len);
     template<class T>
     void writeMessageDataRecord(uint32_t conn_id, ros::Time const& time, T const& msg);
     void writeIndexRecords();

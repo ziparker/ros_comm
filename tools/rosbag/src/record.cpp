@@ -70,6 +70,7 @@ rosbag::RecorderOptions parseOptions(int argc, char** argv) {
       ("node", po::value<std::string>(), "Record all topics subscribed to by a specific node.")
       ("tcpnodelay", "Use the TCP_NODELAY transport hint when subscribing to topics.")
       ("udp", "Use the UDP transport hint when subscribing to topics.")
+      ("iceoryx", "Use the iceoryx transport hint when subscribing to topics.")
       ("repeat-latched", "Repeat latched msgs at the start of each new bag file.");
 
   
@@ -245,6 +246,10 @@ rosbag::RecorderOptions parseOptions(int argc, char** argv) {
     {
       opts.node = vm["node"].as<std::string>();
       std::cout << "Recording from: " << opts.node << std::endl;
+    }
+    if (vm.count("iceoryx"))
+    {
+      opts.transport_hints.iceoryx();
     }
     if (vm.count("tcpnodelay"))
     {
